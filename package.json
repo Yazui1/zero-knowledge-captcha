@@ -1,0 +1,12 @@
+{
+	"private": true,
+	"version": "1.0.0",
+	"license": "GPL-3.0-only",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev --local"
+	},
+	"devDependencies": {
+		"wrangler": "^3.99.0"
+	}
+}

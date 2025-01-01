@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<title>Zero knowledge captcha test page</title>
+	</head>
+	<style>
+		html {
+			display: flex;
+			justify-content: center;
+		}
+
+		h1,
+		h2,
+		h3 {
+			margin: 0;
+		}
+		body {
+			font-family: sans-serif;
+			line-height: 1.5;
+		}
+
+		@media (min-width: 1000px) {
+			body {
+				max-width: 50%;
+			}
+		}
+
+		pre {
+			tab-size: 2;
+			white-space: pre-wrap;
+			word-break: break-word;
+		}
+
+		p,
+		li,
+		pre {
+			opacity: 0.7;
+		}
+	</style>
+	<body>
+		<h1>Zero knowledge captcha test page</h1>
+		<input type="text" id="nonce" placeholder="Nonce" />
+		<button type="submit" onclick="submit()">Submit</button>
+		<script>
+			function submit() {
+				const nonce = document.getElementById("nonce").value;
+				localStorage.setItem("nonce", nonce);
+
+				redirectToChallenge(nonce);
+			}
+
+			function redirectToChallenge(nonce) {
+				const redirectUrl = window.location.href;
+				alert(`Redirecting to challenge with nonce: ${nonce}`);
+				window.location.href = `/?nonce=${nonce}&redirect=${encodeURIComponent(
+					redirectUrl
+				)}`;
+			}
+
+			const searchParams = new URLSearchParams(window.location.search);
+			const nonce = searchParams.get("nonce");
+			const signature = searchParams.get("signature");
+
+			if (nonce && signature) {
+				verifySignature(nonce, signature);
+			}
+
+			async function verifySignature(nonce, signature) {
+				const rememberedNonce = localStorage.getItem("nonce");
+
+				if (!rememberedNonce) {
+					alert("No nonce is currently being remembered");
+					return;
+				}
+
+				if (rememberedNonce !== nonce) {
+					alert("Nonce mismatch");
+					return;
+				}
+
+				alert("Nonce matched remembered nonce, now verifying signature...");
+				localStorage.removeItem("nonce");
+
+				const shaNonce = await hashNonce(nonce);
+				const data = new TextEncoder().encode(shaNonce);
+				const key = await importPublicKey();
+				const signatureBuffer = decodeBase64(signature);
+
+				try {
+					const isValid = await crypto.subtle.verify(
+						"RSASSA-PKCS1-v1_5",
+						key,
+						signatureBuffer,
+						data
+					);
+
+					alert(isValid ? "Valid signature" : "Invalid signature");
+				} catch (error) {
+					alert("Error verifying signature: " + error.message);
+				}
+			}
+
+			async function hashNonce(nonce) {
+				const buffer = await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(nonce)
+				);
+				return Array.from(new Uint8Array(buffer))
+					.map((b) => b.toString(16).padStart(2, "0"))
+					.join("");
+			}
+
+			async function importPublicKey() {
+				const keyData = `{{PUBLIC_SIGNING_KEY}}`.replace(
+					/-----.*-----|\n/g,
+					""
+				);
+				const keyArrayBuffer = Uint8Array.from(atob(keyData), (c) =>
+					c.charCodeAt(0)
+				).buffer;
+
+				return crypto.subtle.importKey(
+					"spki",
+					keyArrayBuffer,
+					{ name: "RSASSA-PKCS1-v1_5", hash: { name: "SHA-256" } },
+					false,
+					["verify"]
+				);
+			}
+
+			function decodeBase64(base64String) {
+				return Uint8Array.from(atob(base64String), (char) => char.charCodeAt(0))
+					.buffer;
+			}
+		</script>
+	</body>
+</html>

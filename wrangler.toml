@@ -1,0 +1,5 @@
+name = "zero-knowledge-captcha"
+workers_dev = true
+main = "index.js"
+
+compatibility_date = "2025-01-01"

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<title>Zero knowledge captcha</title>
+
+		<style>
+			html {
+				display: flex;
+				justify-content: center;
+			}
+
+			h1,
+			h2,
+			h3 {
+				margin: 0;
+			}
+			body {
+				font-family: sans-serif;
+				line-height: 1.5;
+			}
+
+			@media (min-width: 1000px) {
+				body {
+					max-width: 50%;
+				}
+			}
+
+			pre {
+				tab-size: 2;
+				white-space: pre-wrap;
+				word-break: break-word;
+			}
+
+			p,
+			li,
+			pre {
+				opacity: 0.7;
+			}
+		</style>
+	</head>
+	<body>
+		<script>
+			const searchParams = new URLSearchParams(window.location.search);
+			const color = searchParams.get("color");
+			const background = searchParams.get("background");
+
+			if (color) {
+				document.body.style.color = color;
+			}
+			if (background) {
+				document.body.style.backgroundColor = background;
+			}
+		</script>
+		<main>
+			<h1>Zero knowledge captcha</h1>
+			<div
+				class="cf-turnstile"
+				data-sitekey="{{CF_TURNSTILE_SITE_KEY}}"
+				data-callback="onTurnstileSuccess"
+			></div>
+			<p>
+				Traditional captcha systems expose users to privacy risks, because they
+				require users to connect to a third-party service allowing the service
+				to link the user to the website.
+				<br />
+				Zero knowledge captcha challenges users without exposing them to this
+				privacy risk.
+			</p>
+			<h2>How it works</h2>
+			<ol>
+				<li>
+					Link the user to this captcha page with the following query
+					parameters:
+					<pre>{{ORIGIN}}?nonce=NONCE&redirect=REDIRECT_URL</pre>
+					Optionally, you can provide the query parameter <code>color</code> and
+					<code>background</code> to customize the site colors.
+					<br />
+					If you leave out the redirect URL, the signature will be verified on
+					this page.
+				</li>
+				<li>The user solves the captcha.</li>
+				<li>
+					The captcha page submits the SHA-256 hashed nonce alongside the
+					challenge solution to the backend. The backend verifies the solution,
+					signs the hashed nonce using a private key and returns the signature
+					back to the frontend.
+					<br />
+					<br />
+					Optionally, you can provide the query parameter <code>signer</code> to
+					point to a different backend to sign the nonce hash:
+					<pre>
+{{ORIGIN}}?nonce=NONCE&redirect=REDIRECT_URL&signer=https://your-backend</pre
+					>
+				</li>
+				<li>
+					The frontend redirects the user back to
+					<code>REDIRECT_URL</code> provided with the following query
+					parameters:
+					<ul>
+						<li><code>nonce</code>: The nonce that you provided in step 1.</li>
+						<li>
+							<code>signature</code>: The signature that you can verify in your
+							backend.
+						</li>
+					</ul>
+				</li>
+				<li>
+					Verify the signature in your backend using the public key:
+					<pre>{{PUBLIC_SIGNING_KEY}}</pre>
+				</li>
+			</ol>
+			<h2>FAQ</h2>
+
+			<h3>What is a nonce?</h3>
+			<p>
+				A nonce is a number used only once. Your website generates it and sends
+				it to the captcha page. The captcha page will sign it and send it back
+				to your website. This way, you can verify the signature and ensure the
+				signature wasn't used twice, as the nonce is used to prevent replay
+				attacks.
+			</p>
+			<h3>What is a signature?</h3>
+			<p>
+				A signature is a cryptographic proof that the captcha page has solved
+				the challenge. You can verify the signature using the public key and
+				nonce. If the signature is valid, you can trust that the user has solved
+				the challenge.
+			</p>
+			<h3>If a redirect URL is provided, does that not expose the user?</h3>
+			<p>
+				No, because the redirect URL is never sent to the captcha server. The
+				server only receives the nonce hash and the captcha solution. The server
+				signs the nonce and returns the signature to the frontend. The frontend
+				then redirects the user to the redirect URL with the nonce and the
+				signature.
+			</p>
+			<h2>But the user can still be tracked by the nonce, right?</h2>
+			<p>
+				If the nonce was sent to the captcha server plaintext, it could be used
+				to track the user (e.g the nonce could be a user ID or have a certain
+				structure otherwise linkable to a site). However, the nonce is hashed
+				before being sent to the server and thus cannot be used to track the
+				user. On the verifying side, the nonce is hashed again and the signature
+				is verified against the hash.
+			</p>
+			<h3>How to verify the signature?</h3>
+			<p>Sample code:</p>
+			<pre>
+const searchParams = new URLSearchParams(window.location.search);
+
+const nonce = searchParams.get("nonce");
+const signature = searchParams.get("signature");
+
+verifySignature(nonce, signature);
+
+async function verifySignature(nonce, signature) {
+	const shaNonce = await hashNonce(nonce);
+	const data = new TextEncoder().encode(shaNonce);
+
+	const key = await importPublicKey();
+	const signatureBuffer = decodeBase64(signature);
+
+	const isValid = await crypto.subtle.verify(
+		"RSASSA-PKCS1-v1_5",
+		key,
+		signatureBuffer,
+		data
+	);
+
+	alert(isValid ? "Valid signature" : "Invalid signature");
+}
+
+async function hashNonce(nonce) {
+	const buffer = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(nonce)
+	);
+	const array = Array.from(new Uint8Array(buffer));
+	const hex = array.map((b) => b.toString(16).padStart(2, "0")).join("");
+
+	return hex;
+}
+
+async function importPublicKey() {
+	const keyData = `{{PUBLIC_SIGNING_KEY}}`.replace(
+		/-----.*-----|\n/g,
+		""
+	);
+	const keyArrayBuffer = Uint8Array.from(atob(keyData), (c) =>
+		c.charCodeAt(0)
+	).buffer;
+
+	return crypto.subtle.importKey(
+		"spki",
+		keyArrayBuffer,
+		{ name: "RSASSA-PKCS1-v1_5", hash: { name: "SHA-256" } },
+		false,
+		["verify"]
+	);
+}
+
+function decodeBase64(base64String) {
+	return Uint8Array.from(atob(base64String), (char) => char.charCodeAt(0))
+		.buffer;
+}
+				</pre
+			>
+		</main>
+		<footer>
+			<h3>Links</h3>
+			<a href="https://github.com/yazui1/zero-knowledge-captcha">Source code</a>
+		</footer>
+		<script>
+			const nonce = searchParams.get("nonce");
+			const redirect = searchParams.get("redirect");
+			const signature = searchParams.get("signature");
+
+			document.addEventListener("DOMContentLoaded", async () => {
+				if (!redirect && signature && nonce) {
+					verifySignature(nonce, signature);
+				} else if (nonce) {
+					loadTurnstileScript();
+				}
+			});
+
+			async function verifySignature(nonce, signature) {
+				const shaNonce = await hashNonce(nonce);
+				const data = new TextEncoder().encode(shaNonce);
+
+				const key = await importPublicKey();
+				const signatureBuffer = decodeBase64(signature);
+
+				const isValid = await crypto.subtle.verify(
+					"RSASSA-PKCS1-v1_5",
+					key,
+					signatureBuffer,
+					data
+				);
+
+				alert(isValid ? "Valid signature" : "Invalid signature");
+			}
+
+			async function hashNonce(nonce) {
+				const buffer = await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(nonce)
+				);
+				const array = Array.from(new Uint8Array(buffer));
+				const hex = array.map((b) => b.toString(16).padStart(2, "0")).join("");
+
+				return hex;
+			}
+
+			async function importPublicKey() {
+				const keyData = `{{PUBLIC_SIGNING_KEY}}`.replace(
+					/-----.*-----|\n/g,
+					""
+				);
+				const keyArrayBuffer = Uint8Array.from(atob(keyData), (c) =>
+					c.charCodeAt(0)
+				).buffer;
+
+				return crypto.subtle.importKey(
+					"spki",
+					keyArrayBuffer,
+					{ name: "RSASSA-PKCS1-v1_5", hash: { name: "SHA-256" } },
+					false,
+					["verify"]
+				);
+			}
+
+			function decodeBase64(base64String) {
+				return Uint8Array.from(atob(base64String), (char) => char.charCodeAt(0))
+					.buffer;
+			}
+
+			function loadTurnstileScript() {
+				const script = document.createElement("script");
+				script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+				script.defer = true;
+				document.head.appendChild(script);
+			}
+
+			async function onTurnstileSuccess(token) {
+				const signer = searchParams.get("signer");
+
+				const shaNonce = await hashNonce(nonce);
+
+				const response = await fetch(signer || "/", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						"cf-turnstile-response": token,
+						shaNonce: shaNonce,
+					}),
+				});
+
+				if (response.ok) {
+					const signature = await extractSignature(response);
+					redirectWithSignature(signature);
+				}
+			}
+
+			async function extractSignature(response) {
+				const reader = response.body.getReader();
+				const { value } = await reader.read();
+
+				return btoa(String.fromCharCode.apply(null, value));
+			}
+
+			function redirectWithSignature(signature) {
+				const url = new URL(redirect || window.location.href);
+				url.searchParams.set("nonce", nonce);
+				url.searchParams.set("signature", signature);
+				window.location = url;
+			}
+		</script>
+	</body>
+</html>
